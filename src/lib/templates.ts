@@ -509,6 +509,84 @@ You are [role description]. Your purpose is [what you accomplish].
       'Define expected output format',
     ],
   },
+  {
+    id: 'multi-file-project',
+    name: 'Multi-File Project',
+    description: 'Generate a complete project with multiple related files',
+    type: 'skill',
+    category: 'Templates',
+    multiFile: true,
+    skeleton: `---
+name: multi-file-project
+description: Complete multi-file project generator that creates interconnected files forming a coherent project structure
+when-to-use: Use when you need to generate a complete project with multiple related files
+capabilities:
+  - Generates multiple interconnected files
+  - Creates proper project structure
+  - Ensures consistency across files
+  - Follows best practices for file organization
+---
+
+# Multi-File Project Generator
+
+Generate a complete project with multiple related files. The output should be structured as a JSON object containing a files array.
+
+## Output Format
+
+Your response must be valid JSON with this structure:
+
+\`\`\`json
+{
+  "files": [
+    {
+      "path": "SKILL.md",
+      "content": "---\\nname: project-skill\\ndescription: ...\\n---\\n\\n# Skill Content",
+      "language": "markdown"
+    },
+    {
+      "path": "src/config.ts",
+      "content": "// Configuration code",
+      "language": "typescript"
+    },
+    {
+      "path": "src/utils.ts",
+      "content": "// Utility functions",
+      "language": "typescript"
+    }
+  ],
+  "manifest": {
+    "name": "project-name",
+    "version": "1.0.0",
+    "description": "Project description",
+    "rootStructure": "nested"
+  }
+}
+\`\`\`
+
+## File Organization
+
+- **Main file**: SKILL.md or primary entry point
+- **Supporting files**: Organized in src/ directory
+- **Config files**: Separate configuration when needed
+- **Each file**: Should include proper imports/exports
+
+## Best Practices
+
+1. Keep files focused and single-purpose
+2. Use clear, descriptive file names
+3. Maintain consistent code style across files
+4. Include necessary imports in each file
+5. Add comments for complex logic
+
+---
+`,
+    promptHints: [
+      'Generate a multi-file project with proper structure',
+      'Create interconnected TypeScript/JavaScript files',
+      'Include a main skill file with supporting utilities',
+      'Ensure all files work together coherently',
+    ],
+  },
 ];
 
 // Get template by ID

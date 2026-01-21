@@ -1,4 +1,4 @@
-import type { ArtifactMode } from '@/types';
+import type { ArtifactMode, ArtifactFile } from '@/types';
 
 const HISTORY_KEY = 'claude-forge-history';
 const MAX_HISTORY_ITEMS = 50;
@@ -12,6 +12,8 @@ export interface HistoryItem {
   name: string;
   createdAt: string;
   type: 'skill' | 'agent' | 'ruleset';
+  isMultiFile?: boolean;
+  files?: ArtifactFile[];
 }
 
 // Get all history items

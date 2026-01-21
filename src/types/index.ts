@@ -30,14 +30,42 @@ export interface Template {
   category: string;
   skeleton: string;
   promptHints: string[];
+  multiFile?: boolean; // Indicates if this template produces multiple files
 }
 
-// Artifact
+// Individual file in a multi-file artifact
+export interface ArtifactFile {
+  path: string;        // Relative path: "skills/code-reviewer/SKILL.md"
+  content: string;
+  language: string;    // For syntax highlighting
+}
+
+// Multi-file artifact metadata
+export interface ArtifactManifest {
+  name: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  rootStructure: 'flat' | 'nested';
+}
+
+// Artifact (single or multi-file)
 export interface Artifact {
   name: string;
   type: ArtifactType;
+  content: string;           // Single-file content (backward compatible)
+  files?: ArtifactFile[];    // Multi-file artifacts
+  manifest?: ArtifactManifest; // Metadata for multi-file projects
+  isMultiFile?: boolean;     // Quick check for multi-file artifacts
+}
+
+// Editor state for multi-file editing
+export interface EditorFile {
+  id: string;
+  path: string;
   content: string;
-  files?: Record<string, string>; // For multi-file artifacts
+  language: string;
+  isModified?: boolean;
 }
 
 // Generation request
@@ -46,6 +74,7 @@ export interface GenerateRequest {
   template?: string;
   idea: string;
   settings: AppSettings['provider'];
+  multiFile?: boolean; // Request multi-file output
 }
 
 // Save request
@@ -60,4 +89,14 @@ export interface SaveLocation {
   type: 'project' | 'personal';
   path: string;
   label: string;
+}
+
+// File tree node
+export interface FileTreeNode {
+  id: string;
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileTreeNode[];
+  language?: string;
 }

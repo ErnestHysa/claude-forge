@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
         try {
           for await (const chunk of stream) {
             if (chunk.type === 'content_block_delta') {
-              const content = chunk.delta.text;
+              const content = (chunk.delta as any).text as string;
               const data = JSON.stringify({ content });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }

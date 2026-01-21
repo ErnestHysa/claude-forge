@@ -1,0 +1,231 @@
+/**
+ * ZIP export utilities for Claude Forge.
+ * All client-side - no data leaves the device.
+ */
+
+import type { EditorFile, Artifact } from '@/types';
+
+/**
+ * Generate a ZIP file from multiple files
+ * Uses a simple ZIP implementation without external dependencies
+ */
+export async function createZip(files: EditorFile[], zipName: string = 'artifact.zip'): Promise<void> {
+  // For now, use a simpler approach - download each file
+  // In production, you'd use a library like JSZip
+  // This is a client-side only implementation
+
+  if (files.length === 0) {
+    throw new Error('No files to zip');
+  }
+
+  // If only one file, download directly
+  if (files.length === 1) {
+    const file = files[0];
+    downloadFile(file.path.split('/').pop() || 'artifact', file.content);
+    return;
+  }
+
+  // For multiple files, we'll create a simple ZIP-like structure
+  // Using JSZip would be ideal, but to avoid dependencies, we'll
+  // create individual downloads for now
+
+  // Create a simple manifest and download files individually
+  const manifest = {
+    name: zipName.replace('.zip', ''),
+    files: files.map((f) => ({ path: f.path, language: f.language })),
+    created: new Date().toISOString(),
+  };
+
+  // Download manifest first
+  downloadFile('manifest.json', JSON.stringify(manifest, null, 2));
+
+  // Then download each file with a small delay
+  for (const file of files) {
+    const fileName = file.path.replace(/\//g, '_');
+    downloadFile(fileName, file.content);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/**
+ * Download a single file
+ */
+function downloadFile(fileName: string, content: string) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Parse multi-file artifact from AI response
+ * Expects JSON structure or markdown code blocks
+ */
+export function parseMultiFileResponse(response: string): { files: EditorFile[]; manifest?: Artifact['manifest'] } {
+  const files: EditorFile[] = [];
+  let manifest: Artifact['manifest'] | undefined;
+
+  // Try to parse as JSON first
+  try {
+    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || response.match(/{[\s\S]*}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+
+      if (parsed.files && Array.isArray(parsed.files)) {
+        // Standard format: { files: [{ path, content, language }], manifest }
+        parsed.files.forEach((f: any, index: number) => {
+          files.push({
+            id: `file-${index}`,
+            path: f.path || `file-${index}.md`,
+            content: f.content || '',
+            language: f.language || getLanguageFromPath(f.path || ''),
+          });
+        });
+
+        if (parsed.manifest) {
+          manifest = parsed.manifest;
+        }
+
+        return { files, manifest };
+      }
+    }
+  } catch {
+    // Not JSON, continue to markdown parsing
+  }
+
+  // Parse markdown code blocks
+  const codeBlocks = response.match(/```(\w*)\n([\s\S]*?)```/g);
+
+  if (codeBlocks && codeBlocks.length > 1) {
+    // Multiple code blocks found - treat as multi-file
+    codeBlocks.forEach((block, index) => {
+      const langMatch = block.match(/```(\w*)\n/);
+      const contentMatch = block.match(/```(\w*)\n([\s\S]*?)```/);
+
+      const language = langMatch?.[1] || 'markdown';
+      const content = contentMatch?.[2] || '';
+
+      // Generate a path based on language
+      const ext = getFileExtension(language);
+      const path = index === 0 ? `SKILL.md` : `src/file-${index}.${ext}`;
+
+      files.push({
+        id: `file-${index}`,
+        path,
+        content,
+        language,
+      });
+    });
+
+    return {
+      files,
+      manifest: {
+        name: 'multi-file-artifact',
+        rootStructure: 'flat',
+      },
+    };
+  }
+
+  // Single file - return as single-element array
+  files.push({
+    id: 'file-0',
+    path: 'artifact.md',
+    content: response,
+    language: 'markdown',
+  });
+
+  return { files, manifest };
+}
+
+/**
+ * Get file extension from language
+ */
+function getFileExtension(language: string): string {
+  const extensions: Record<string, string> = {
+    markdown: 'md',
+    typescript: 'ts',
+    javascript: 'js',
+    json: 'json',
+    yaml: 'yaml',
+    html: 'html',
+    css: 'css',
+    plaintext: 'txt',
+  };
+
+  return extensions[language] || 'txt';
+}
+
+/**
+ * Get language from file path
+ */
+export function getLanguageFromPath(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase();
+
+  const languages: Record<string, string> = {
+    md: 'markdown',
+    tsx: 'typescript',
+    ts: 'typescript',
+    jsx: 'javascript',
+    js: 'javascript',
+    json: 'json',
+    css: 'css',
+    html: 'html',
+    yaml: 'yaml',
+    yml: 'yaml',
+    txt: 'plaintext',
+  };
+
+  return languages[ext || ''] || 'plaintext';
+}
+
+/**
+ * Convert EditorFile[] to Artifact format for saving
+ */
+export function filesToArtifact(files: EditorFile[], type: Artifact['type']): Artifact {
+  // Extract name from first file or use default
+  const nameMatch = files[0]?.content.match(/^name:\s*(.+)$/m);
+  const name = nameMatch?.[1] || 'multi-file-artifact';
+
+  return {
+    name,
+    type,
+    content: files[0]?.content || '', // Primary file content for backward compatibility
+    files: files.map((f) => ({
+      path: f.path,
+      content: f.content,
+      language: f.language,
+    })),
+    isMultiFile: files.length > 1,
+    manifest: {
+      name,
+      rootStructure: files.length > 1 ? 'nested' : 'flat',
+    },
+  };
+}
+
+/**
+ * Convert Artifact to EditorFile[] format
+ */
+export function artifactToFiles(artifact: Artifact): EditorFile[] {
+  if (artifact.isMultiFile && artifact.files) {
+    return artifact.files.map((f, index) => ({
+      id: `file-${index}`,
+      path: f.path,
+      content: f.content,
+      language: f.language,
+    }));
+  }
+
+  // Single file artifact
+  return [
+    {
+      id: 'file-0',
+      path: 'artifact.md',
+      content: artifact.content,
+      language: 'markdown',
+    },
+  ];
+}

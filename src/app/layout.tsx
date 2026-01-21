@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-display",
@@ -30,7 +31,9 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} font-body antialiased`}
       >
-        {children}
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
         <Toaster />
       </body>
     </html>

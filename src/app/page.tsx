@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Settings, Sun, Moon, Hammer, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,11 +10,15 @@ import { IdeaInput } from '@/components/IdeaInput';
 import { SplitEditor } from '@/components/SplitEditor';
 import { ActionBar } from '@/components/ActionBar';
 import { HistoryPanel } from '@/components/HistoryPanel';
+import { NetworkBanner } from '@/components/NetworkStatus';
+import { PasswordPrompt } from '@/components/PasswordPrompt';
 import { getSettings, type AppSettings } from '@/lib/settings';
 import { getTemplate, templates } from '@/lib/templates';
 import { saveToHistory, extractNameFromContent, type HistoryItem } from '@/lib/history';
+import { getUserMessage, logError, createError, ErrorCodes } from '@/lib/error-handling';
+import { parseMultiFileResponse, artifactToFiles, filesToArtifact } from '@/lib/zip-utils';
 import { toast } from 'sonner';
-import type { ArtifactMode, Artifact } from '@/types';
+import type { ArtifactMode, Artifact, EditorFile } from '@/types';
 
 export default function HomePage() {
   const router = useRouter();
@@ -27,12 +31,31 @@ export default function HomePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [unlockedPassword, setUnlockedPassword] = useState<string | undefined>();
   const [detectedPath, setDetectedPath] = useState('~/.claude/skills/');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
+  // Multi-file state
+  const [isMultiFile, setIsMultiFile] = useState(false);
+  const [editorFiles, setEditorFiles] = useState<EditorFile[]>([]);
+  const [activeFileId, setActiveFileId] = useState<string>('');
+
+  // Check if current template is multi-file
+  const currentTemplate = useMemo(() => {
+    if (!template) return null;
+    return getTemplate(template);
+  }, [template]);
+
+  // Check if multi-file mode should be enabled
+  useEffect(() => {
+    if (currentTemplate?.multiFile) {
+      setIsMultiFile(true);
+    }
+  }, [currentTemplate]);
+
   // Load settings and theme on mount
   useEffect(() => {
-    const loadedSettings = getSettings();
+    const loadedSettings = getSettings(unlockedPassword);
     setSettings(loadedSettings);
 
     // Detect git repo for save path
@@ -53,7 +76,7 @@ export default function HomePage() {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     mediaQuery.addEventListener('change', applyTheme);
     return () => mediaQuery.removeEventListener('change', applyTheme);
-  }, []);
+  }, [unlockedPassword]);
 
   // Detect save location (git repo or personal)
   const detectSaveLocation = async () => {
@@ -109,17 +132,74 @@ export default function HomePage() {
     setTemplate(item.template);
     setIdea(item.idea);
     setGenerated(item.content);
+
+    // Check if it's a multi-file artifact
+    if (item.isMultiFile && item.files) {
+      const files = item.files.map((f, i) => ({
+        id: `file-${i}`,
+        path: f.path,
+        content: f.content,
+        language: f.language || 'markdown',
+      }));
+      setEditorFiles(files);
+      setActiveFileId(files[0]?.id || '');
+      setIsMultiFile(true);
+    } else {
+      setIsMultiFile(false);
+      setEditorFiles([]);
+      setActiveFileId('');
+    }
+
     toast.success('Loaded from history', {
       description: item.name,
     });
   }, []);
 
+  // Multi-file handlers
+  const handleFileChange = useCallback((fileId: string, content: string) => {
+    setEditorFiles((prev) =>
+      prev.map((f) => (f.id === fileId ? { ...f, content, isModified: true } : f))
+    );
+  }, []);
+
+  const handleFileSelect = useCallback((fileId: string) => {
+    setActiveFileId(fileId);
+  }, []);
+
+  // Reset editor state
+  const resetEditorState = useCallback(() => {
+    setGenerated('');
+    setEditorFiles([]);
+    setActiveFileId('');
+    setIsMultiFile(false);
+  }, []);
   // Generate artifact
   const handleGenerate = async () => {
-    if (!idea.trim() || !settings) return;
+    if (!idea.trim() || !settings) {
+      toast.error('Please enter your API key in settings', {
+        description: 'Go to Settings to configure your API provider.',
+      });
+      return;
+    }
+
+    if (!settings.provider.apiKey) {
+      // Check if encryption is enabled - user needs to unlock
+      const { isEncryptionEnabled } = await import('@/lib/settings');
+      if (isEncryptionEnabled()) {
+        toast.error('Vault locked', {
+          description: 'Please unlock with your password to access your API key.',
+        });
+      } else {
+        toast.error('API key is required', {
+          description: 'Please configure your API key in Settings.',
+        });
+        router.push('/settings');
+      }
+      return;
+    }
 
     setIsGenerating(true);
-    setGenerated('');
+    resetEditorState();
 
     try {
       const response = await fetch('/api/generate', {
@@ -130,11 +210,16 @@ export default function HomePage() {
           template,
           idea,
           settings: settings.provider,
+          multiFile: isMultiFile || currentTemplate?.multiFile,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate');
+        const errorData = await response.json().catch(() => ({ error: 'Failed to generate' }));
+        throw createError(
+          errorData.error || 'Failed to generate artifact',
+          errorData.code || ErrorCodes.GENERATION_FAILED
+        );
       }
 
       // Read streaming response
@@ -159,14 +244,40 @@ export default function HomePage() {
                 const parsed = JSON.parse(data);
                 if (parsed.content) {
                   fullContent += parsed.content;
+                  // Update single-file view during generation
                   setGenerated(fullContent);
+                } else if (parsed.error) {
+                  throw createError(parsed.error, ErrorCodes.GENERATION_FAILED);
                 }
               } catch {
-                // Skip invalid JSON
+                // Skip invalid JSON lines
               }
             }
           }
         }
+      }
+
+      // Check if we got any content
+      if (!fullContent) {
+        throw createError(
+          'No content was generated. Please try again.',
+          ErrorCodes.GENERATION_FAILED
+        );
+      }
+
+      // Parse response for multi-file artifacts
+      const parsedResult = parseMultiFileResponse(fullContent);
+
+      if (parsedResult.files.length > 1) {
+        // Multi-file artifact
+        setEditorFiles(parsedResult.files);
+        setActiveFileId(parsedResult.files[0]?.id || '');
+        setIsMultiFile(true);
+        setGenerated(fullContent); // Store raw response for saving
+      } else {
+        // Single file artifact
+        setIsMultiFile(false);
+        setGenerated(parsedResult.files[0]?.content || fullContent);
       }
 
       // Save to history
@@ -178,15 +289,24 @@ export default function HomePage() {
         content: fullContent,
         name,
         type: mode === 'auto' ? 'skill' : mode,
-      });
+        isMultiFile: parsedResult.files.length > 1,
+        files: parsedResult.files.length > 1 ? parsedResult.files.map((f) => ({
+          path: f.path,
+          content: f.content,
+          language: f.language,
+        })) : undefined,
+      } as HistoryItem & { isMultiFile?: boolean; files?: any[] });
 
       toast.success('Artifact generated!', {
-        description: 'Review and edit before saving.',
+        description: parsedResult.files.length > 1
+          ? `${parsedResult.files.length} files created`
+          : 'Review and edit before saving.',
       });
     } catch (error) {
-      console.error('Generation error:', error);
+      logError(error, 'Generation');
+      const userMessage = getUserMessage(error as Error);
       toast.error('Generation failed', {
-        description: 'Please check your settings and try again.',
+        description: userMessage,
       });
     } finally {
       setIsGenerating(false);
@@ -197,8 +317,8 @@ export default function HomePage() {
   const handleSave = async () => {
     if (!generated) return;
 
-    toast.promise(
-      fetch('/api/save', {
+    try {
+      const response = await fetch('/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -206,17 +326,27 @@ export default function HomePage() {
           type: mode === 'auto' ? 'skill' : mode,
           location: 'auto',
         }),
-      }).then(async (res) => {
-        if (!res.ok) throw new Error('Save failed');
-        const result = await res.json();
-        return result;
-      }),
-      {
-        loading: 'Saving artifact...',
-        success: (result) => `Saved to ${result.path}`,
-        error: 'Failed to save artifact',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to save' }));
+        throw createError(
+          errorData.error || 'Failed to save artifact',
+          errorData.code || ErrorCodes.SAVE_FAILED
+        );
       }
-    );
+
+      const result = await response.json();
+      toast.success(`Saved to ${result.path}`, {
+        description: 'Artifact saved successfully.',
+      });
+    } catch (error) {
+      logError(error, 'Save');
+      const userMessage = getUserMessage(error as Error);
+      toast.error('Save failed', {
+        description: userMessage,
+      });
+    }
   };
 
   // Handle mode change - reset template if incompatible
@@ -232,6 +362,9 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Network Status Banner */}
+      <NetworkBanner />
+
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -311,16 +444,30 @@ export default function HomePage() {
         </section>
 
         {/* Editor */}
-        {generated || isGenerating ? (
+        {(generated || editorFiles.length > 0 || isGenerating) ? (
           <section className="space-y-2">
             <label className="text-sm font-medium">
-              {isGenerating ? 'Generating...' : 'Edit your artifact'}
+              {isGenerating
+                ? 'Generating...'
+                : isMultiFile
+                  ? `Editing ${editorFiles.length} files`
+                  : 'Edit your artifact'}
             </label>
-            <SplitEditor
-              value={generated}
-              onChange={setGenerated}
-              readOnly={isGenerating}
-            />
+            {isMultiFile && editorFiles.length > 0 ? (
+              <SplitEditor
+                files={editorFiles}
+                activeFileId={activeFileId}
+                onFileChange={handleFileChange}
+                onFileSelect={handleFileSelect}
+                readOnly={isGenerating}
+              />
+            ) : (
+              <SplitEditor
+                value={generated}
+                onChange={setGenerated}
+                readOnly={isGenerating}
+              />
+            )}
           </section>
         ) : (
           <section className="border-2 border-dashed border-border rounded-xl p-12 text-center">
@@ -339,9 +486,9 @@ export default function HomePage() {
         )}
 
         {/* Action bar */}
-        {generated && !isGenerating && (
+        {(generated || editorFiles.length > 0) && !isGenerating && (
           <ActionBar
-            hasContent={!!generated}
+            hasContent={!!generated || editorFiles.length > 0}
             isGenerating={isGenerating}
             onSave={handleSave}
             onRegenerate={handleGenerate}
@@ -363,6 +510,9 @@ export default function HomePage() {
         onClose={() => setIsHistoryOpen(false)}
         onLoad={handleLoadFromHistory}
       />
+
+      {/* Password Prompt - shows when encryption is enabled */}
+      <PasswordPrompt onSuccess={setUnlockedPassword} />
     </div>
   );
 }
