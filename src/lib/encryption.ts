@@ -70,7 +70,7 @@ export async function deriveKey(
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -96,9 +96,9 @@ export async function encryptData(
   const plaintext = encoder.encode(data);
 
   const encrypted = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    plaintext
+    plaintext as BufferSource
   );
 
   return {
@@ -123,9 +123,9 @@ export async function decryptData(
   const key = await deriveKey(password, salt);
 
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    ciphertext
+    ciphertext as BufferSource
   );
 
   const decoder = new TextDecoder();
