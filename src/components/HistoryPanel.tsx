@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Clock,
   Trash2,
@@ -147,35 +147,31 @@ function HistoryItemCard({
 export function HistoryPanel({ isOpen, onClose, onLoad }: HistoryPanelProps) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredHistory, setFilteredHistory] = useState<HistoryItem[]>([]);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
   // Load history when panel opens
-  const refreshHistory = () => {
+  const refreshHistory = useCallback(() => {
     setHistory(getHistory());
-  };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       refreshHistory();
     }
-  }, [isOpen]);
+  }, [isOpen, refreshHistory]);
 
-  // Filter history based on search
-  useEffect(() => {
+  // Filter history based on search (use useMemo to avoid setState in effect)
+  const filteredHistory = useMemo(() => {
     if (!searchQuery.trim()) {
-      setFilteredHistory(history);
-    } else {
-      const query = searchQuery.toLowerCase();
-      setFilteredHistory(
-        history.filter(
-          (item) =>
-            item.name.toLowerCase().includes(query) ||
-            item.idea.toLowerCase().includes(query)
-        )
-      );
+      return history;
     }
+    const query = searchQuery.toLowerCase();
+    return history.filter(
+      (item) =>
+        item.name.toLowerCase().includes(query) ||
+        item.idea.toLowerCase().includes(query)
+    );
   }, [searchQuery, history]);
 
   const handleLoad = (item: HistoryItem) => {

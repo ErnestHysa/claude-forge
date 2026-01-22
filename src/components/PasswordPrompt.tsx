@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,14 +24,6 @@ export function PasswordPrompt({ onSuccess }: PasswordPromptProps) {
     const user = getCurrentUser();
     return !user;
   });
-
-  useEffect(() => {
-    // Only re-check if component mounts with no user
-    const user = getCurrentUser();
-    if (!user && !isOpen) {
-      setIsOpen(true);
-    }
-  }, []);
 
   const handleGoToLogin = () => {
     setIsOpen(false);

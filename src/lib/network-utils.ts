@@ -4,6 +4,7 @@
  * All client-side - no data leaves the device.
  */
 
+import { useState, useEffect } from 'react';
 import { withRetry, createError, ErrorCodes, logError } from './error-handling';
 
 /**
@@ -224,12 +225,9 @@ export const networkManager = new NetworkManager();
  * Note: This file is marked as 'use client' safe
  */
 export function useNetworkStatus(): NetworkStatus {
-  // Use standard React import
-  const React = require('react');
+  const [status, setStatus] = useState(() => networkManager.getStatus());
 
-  const [status, setStatus] = React.useState(() => networkManager.getStatus());
-
-  React.useEffect(() => {
+  useEffect(() => {
     return networkManager.subscribe((newStatus) => {
       setStatus(newStatus);
     });
@@ -261,7 +259,7 @@ export async function resilientFetch<T = unknown>(
   // Check if offline
   if (!networkManager.isOnline()) {
     if (queueOffline && options.method === 'POST') {
-      const id = networkManager.queueOperation(url, options);
+      networkManager.queueOperation(url, options);
       throw createError(
         'You are offline. The operation has been queued and will retry when you reconnect.',
         ErrorCodes.NETWORK_OFFLINE

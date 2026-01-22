@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Additional ignores:
+    ".claude/skills/**",  // Skill test files with intentional lint issues
+    "node_modules/**",
+    "coverage/**",
+    "*.tsbuildinfo",
   ]),
 ]);
 
