@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Settings,
   ShieldCheck,
   Palette,
   Keyboard,
@@ -27,12 +26,10 @@ import {
   getSettings,
   saveSettings,
   applyProviderPreset,
-  providerPresets,
   type ProviderPreset,
 } from '@/lib/settings';
 import {
   getCurrentUser,
-  isLoggedIn,
   logout,
   changePassword,
   verifyPasswordStrength,

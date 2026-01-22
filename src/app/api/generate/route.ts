@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { templates, getTemplate } from '@/lib/templates';
+import { getTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
 
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
         try {
           for await (const chunk of stream) {
             if (chunk.type === 'content_block_delta') {
-              const content = (chunk.delta as any).text as string;
+              const content = (chunk.delta as { text: string }).text;
               const data = JSON.stringify({ content });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }

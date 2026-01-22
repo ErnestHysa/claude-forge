@@ -1,0 +1,4 @@
+   env:
+     API_KEY: ${{ secrets.API_KEY }}
+   # Never hardcode secrets
+   

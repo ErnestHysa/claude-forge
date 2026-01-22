@@ -7,6 +7,24 @@
 import { withRetry, createError, ErrorCodes, logError } from './error-handling';
 
 /**
+ * Network Connection API interface
+ */
+interface NetworkConnection {
+  effectiveType?: string;
+  saveData?: boolean;
+  downlink?: number;
+  rtt?: number;
+  addEventListener?: (event: string, listener: () => void) => void;
+}
+
+/**
+ * Extended navigator interface
+ */
+interface ExtendedNavigator extends Navigator {
+  connection?: NetworkConnection;
+}
+
+/**
  * Network status
  */
 export interface NetworkStatus {
@@ -58,20 +76,22 @@ class NetworkManager {
     });
 
     // Listen for network information changes (if available)
-    if ('connection' in navigator) {
-      const conn = (navigator as any).connection;
-      conn.addEventListener('change', () => this.updateStatus());
+    const extendedNavigator = navigator as ExtendedNavigator;
+    if (extendedNavigator.connection) {
+      extendedNavigator.connection.addEventListener?.('change', () => this.updateStatus());
     }
   }
 
   private updateStatus() {
     const wasOffline = !this.currentStatus.online;
+    const extendedNavigator = navigator as ExtendedNavigator;
+
     this.currentStatus = {
       online: navigator.onLine,
-      effectiveType: (navigator as any).connection?.effectiveType,
-      saveData: (navigator as any).connection?.saveData,
-      downlink: (navigator as any).connection?.downlink,
-      rtt: (navigator as any).connection?.rtt,
+      effectiveType: extendedNavigator.connection?.effectiveType,
+      saveData: extendedNavigator.connection?.saveData,
+      downlink: extendedNavigator.connection?.downlink,
+      rtt: extendedNavigator.connection?.rtt,
     };
 
     // Notify listeners
@@ -201,11 +221,11 @@ export const networkManager = new NetworkManager();
 
 /**
  * React hook for network status
+ * Note: This file is marked as 'use client' safe
  */
 export function useNetworkStatus(): NetworkStatus {
-  if (typeof window === 'undefined') {
-    return { online: true };
-  }
+  // Use standard React import
+  const React = require('react');
 
   const [status, setStatus] = React.useState(() => networkManager.getStatus());
 
@@ -218,18 +238,10 @@ export function useNetworkStatus(): NetworkStatus {
   return status;
 }
 
-// Lazy import React to avoid issues with non-client environments
-let React: any;
-try {
-  React = require('react');
-} catch {
-  // React not available (server-side)
-}
-
 /**
  * Resilient fetch with retry logic and offline handling
  */
-export async function resilientFetch<T = any>(
+export async function resilientFetch<T = unknown>(
   url: string,
   options: RequestInit = {},
   config: {
@@ -277,11 +289,11 @@ export async function resilientFetch<T = any>(
           const error = createError(
             `HTTP ${response.status}: ${response.statusText}`,
             ErrorCodes.NETWORK_FAILED
-          );
+          ) as Error & { dontRetry?: boolean };
 
           // Don't retry client errors (4xx)
           if (response.status >= 400 && response.status < 500) {
-            (error as any).dontRetry = true;
+            error.dontRetry = true;
           }
 
           throw error;
@@ -301,7 +313,7 @@ export async function resilientFetch<T = any>(
         onRetry: (attempt, error) => {
           logError(error, 'Network retry');
           // Don't retry if marked
-          if ((error as any).dontRetry) {
+          if ((error as Error & { dontRetry?: boolean }).dontRetry) {
             throw error;
           }
         },

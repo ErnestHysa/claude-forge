@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { ArtifactMode } from '@/types';
 import { Sparkles, Code, ScrollText, Wand2 } from 'lucide-react';
 

@@ -1,0 +1,28 @@
+# Dependencies
+node_modules
+
+# Build outputs
+.next
+out
+dist
+build
+
+# Claude Code skills (contain intentional code patterns for testing)
+.claude/skills
+
+# Test coverage
+coverage
+
+# Environment files
+.env*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Misc
+.DS_Store
+*.pem
+
+# Temporary files
+tmpclaude-*-cwd

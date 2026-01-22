@@ -71,7 +71,7 @@ export function parseMultiFileResponse(response: string): { files: EditorFile[];
 
       if (parsed.files && Array.isArray(parsed.files)) {
         // Standard format: { files: [{ path, content, language }], manifest }
-        parsed.files.forEach((f: any, index: number) => {
+        parsed.files.forEach((f: { path?: string; content?: string; language?: string }, index: number) => {
           files.push({
             id: `file-${index}`,
             path: f.path || `file-${index}.md`,

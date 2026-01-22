@@ -14,18 +14,21 @@ import {
 import { getCurrentUser } from '@/lib/user-account';
 
 interface PasswordPromptProps {
-  onSuccess: () => void;
+  onSuccess?: () => void;
 }
 
 export function PasswordPrompt({ onSuccess }: PasswordPromptProps) {
   const router = useRouter();
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(() => {
+    // Initialize state based on auth status during render
+    const user = getCurrentUser();
+    return !user;
+  });
 
   useEffect(() => {
-    // Check if user needs to login
+    // Only re-check if component mounts with no user
     const user = getCurrentUser();
-    if (!user) {
-      // User not logged in - show prompt to login
+    if (!user && !isOpen) {
       setIsOpen(true);
     }
   }, []);
@@ -64,7 +67,7 @@ export function PasswordPrompt({ onSuccess }: PasswordPromptProps) {
           </Button>
 
           <p className="text-xs text-center text-muted-foreground">
-            Don't have an account? You'll be able to create one on the sign-in page.
+            Don&apos;t have an account? You&apos;ll be able to create one on the sign-in page.
           </p>
         </div>
       </DialogContent>

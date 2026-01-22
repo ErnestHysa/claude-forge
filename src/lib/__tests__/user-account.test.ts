@@ -47,15 +47,6 @@ function getRawUsers() {
   return JSON.parse(stored);
 }
 
-// Mock crypto for password hashing
-const mockHash = async (password: string) => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-};
-
 describe('User Account System', () => {
   beforeEach(() => {
     mockLocalStorage.clear();
@@ -79,7 +70,7 @@ describe('User Account System', () => {
     it('should store password hash, not plain password', async () => {
       await createAccount('testuser', 'SecurePass123!');
       const users = getRawUsers();
-      const user = users.find((u: any) => u.username === 'testuser');
+      const user = users.find((u: { username: string }) => u.username === 'testuser');
 
       expect(user).toBeDefined();
       expect(user?.passwordHash).not.toBe('SecurePass123!');

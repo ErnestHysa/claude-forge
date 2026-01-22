@@ -9,7 +9,6 @@ import { FileTree } from '@/components/FileTree';
 import { CodeEditor } from '@/components/CodeEditor';
 import { toast } from 'sonner';
 import type { EditorFile } from '@/types';
-import { getLanguageFromPath } from '@/components/FileTabs';
 import { createZip } from '@/lib/zip-utils';
 
 interface SingleFileProps {
@@ -42,13 +41,16 @@ export function SplitEditor(props: SplitEditorProps) {
   const [previewMode, setPreviewMode] = useState<'split' | 'code' | 'preview'>('split');
   const [editorHeight, setEditorHeight] = useState(500);
   const [showFileTree, setShowFileTree] = useState(isMultiFile);
-  const [editorTheme, setEditorTheme] = useState<'light' | 'dark'>('light');
+  const [editorTheme, setEditorTheme] = useState<'light' | 'dark'>(() => {
+    // Initialize based on system preference
+    if (typeof window !== 'undefined') {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    return 'light';
+  });
 
-  // Detect system theme preference
+  // Listen for system theme changes
   useEffect(() => {
-    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setEditorTheme(isDark ? 'dark' : 'light');
-
     const listener = (e: MediaQueryListEvent) => {
       setEditorTheme(e.matches ? 'dark' : 'light');
     };

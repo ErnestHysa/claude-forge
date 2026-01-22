@@ -16,14 +16,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -160,6 +152,10 @@ export function HistoryPanel({ isOpen, onClose, onLoad }: HistoryPanelProps) {
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
   // Load history when panel opens
+  const refreshHistory = () => {
+    setHistory(getHistory());
+  };
+
   useEffect(() => {
     if (isOpen) {
       refreshHistory();
@@ -181,10 +177,6 @@ export function HistoryPanel({ isOpen, onClose, onLoad }: HistoryPanelProps) {
       );
     }
   }, [searchQuery, history]);
-
-  const refreshHistory = () => {
-    setHistory(getHistory());
-  };
 
   const handleLoad = (item: HistoryItem) => {
     onLoad(item);

@@ -5,7 +5,7 @@ import { Component, ReactNode } from 'react';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: any) => void;
+  onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
 }
 
 interface State {
@@ -28,7 +28,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     // Log the error to the console
     console.error('ErrorBoundary caught an error:', error, errorInfo);
 
@@ -122,8 +122,8 @@ export class ErrorBoundary extends Component<Props, State> {
 export function withErrorBoundary<P extends object>(
   Component: React.ComponentType<P>,
   fallback?: ReactNode
-): React.ComponentType<P & { onError?: (error: Error, errorInfo: any) => void }> {
-  return function WrappedComponent(props: P & { onError?: (error: Error, errorInfo: any) => void }) {
+): React.ComponentType<P & { onError?: (error: Error, errorInfo: React.ErrorInfo) => void }> {
+  return function WrappedComponent(props: P & { onError?: (error: Error, errorInfo: React.ErrorInfo) => void }) {
     return (
       <ErrorBoundary fallback={fallback} onError={props.onError}>
         <Component {...(props as P)} />

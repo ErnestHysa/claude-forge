@@ -13,13 +13,12 @@ import { HistoryPanel } from '@/components/HistoryPanel';
 import { NetworkBanner } from '@/components/NetworkStatus';
 import { PasswordPrompt } from '@/components/PasswordPrompt';
 import { getSettings, type AppSettings } from '@/lib/settings';
-import { getCurrentUser } from '@/lib/user-account';
-import { getTemplate, templates } from '@/lib/templates';
+import { getTemplate } from '@/lib/templates';
 import { saveToHistory, extractNameFromContent, type HistoryItem } from '@/lib/history';
 import { getUserMessage, logError, createError, ErrorCodes } from '@/lib/error-handling';
-import { parseMultiFileResponse, artifactToFiles, filesToArtifact } from '@/lib/zip-utils';
+import { parseMultiFileResponse } from '@/lib/zip-utils';
 import { toast } from 'sonner';
-import type { ArtifactMode, Artifact, EditorFile } from '@/types';
+import type { ArtifactMode, EditorFile } from '@/types';
 
 export default function HomePage() {
   const router = useRouter();
@@ -78,15 +77,16 @@ export default function HomePage() {
 
     // Listen for system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleThemeChange = () => {
-      if (settings) {
-        const theme = settings.appearance.theme;
+    const handleThemeChange = (e: MediaQueryListEvent) => {
+      // Re-fetch settings on theme change to avoid stale state
+      getSettings().then((loadedSettings) => {
+        const theme = loadedSettings.appearance.theme;
         const isDark =
           theme === 'dark' ||
-          (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          (theme === 'system' && e.matches);
         setDarkMode(isDark);
         document.documentElement.classList.toggle('dark', isDark);
-      }
+      });
     };
     mediaQuery.addEventListener('change', handleThemeChange);
     return () => mediaQuery.removeEventListener('change', handleThemeChange);
@@ -129,7 +129,7 @@ export default function HomePage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [generated, router]);
+  }, [generated, router, handleSave]);
 
   // Toggle dark mode
   const toggleDarkMode = useCallback(() => {
@@ -301,7 +301,7 @@ export default function HomePage() {
           content: f.content,
           language: f.language,
         })) : undefined,
-      } as HistoryItem & { isMultiFile?: boolean; files?: any[] });
+      } as HistoryItem & { isMultiFile?: boolean; files?: Array<{ path: string; content: string; language: string }> });
 
       toast.success('Artifact generated!', {
         description: parsedResult.files.length > 1
@@ -320,7 +320,7 @@ export default function HomePage() {
   };
 
   // Save artifact
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!generated) return;
 
     try {
@@ -361,7 +361,7 @@ export default function HomePage() {
         description: userMessage,
       });
     }
-  };
+  }, [generated, isMultiFile, editorFiles, mode]);
 
   // Handle mode change - reset template if incompatible
   const handleModeChange = (newMode: ArtifactMode) => {

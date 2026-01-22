@@ -12,8 +12,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Check, RefreshCw, FolderOpen } from 'lucide-react';
 import { useState } from 'react';
-import { toast } from 'sonner';
-import type { Artifact } from '@/types';
 
 interface ActionBarProps {
   hasContent: boolean;
