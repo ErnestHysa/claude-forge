@@ -1,0 +1,10 @@
+    from datetime import datetime
+    
+    def process_data(items):
+        result = []
+        for item in items:
+            result.append(item.upper())
+        return result
+    
+    print(process_data(['hello', 'world']))
+    

@@ -1,0 +1,31 @@
+    # Import statements
+    import os
+    import sys
+    import json  # unused
+    from datetime import datetime
+    
+    # Helper function
+    def process_data(items):
+        """Process a list of items"""
+        result = []
+        for item in items:
+            # Transform the item
+            transformed = item.upper()
+            result.append(transformed)
+        return result
+    
+    # Duplicate function
+    def process_items(items):
+        result = []
+        for item in items:
+            result.append(item.upper())
+        return result
+    
+    # Unused function
+    def legacy_handler():
+        pass
+    
+    data = ['hello', 'world']
+    processed = process_data(data)
+    print(processed)
+    
