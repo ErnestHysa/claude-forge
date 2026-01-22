@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
-import Editor, { OnMount } from '@monaco-editor/react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Copy, Download, Maximize2, Minimize2, Loader2, Files } from 'lucide-react';
+import { Copy, Download, Maximize2, Files } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileTabs } from '@/components/FileTabs';
 import { FileTree } from '@/components/FileTree';
+import { CodeEditor } from '@/components/CodeEditor';
 import { toast } from 'sonner';
-import type { editor } from 'monaco-editor';
 import type { EditorFile } from '@/types';
 import { getLanguageFromPath } from '@/components/FileTabs';
+import { createZip } from '@/lib/zip-utils';
 
 interface SingleFileProps {
   value: string;
@@ -41,9 +41,22 @@ export function SplitEditor(props: SplitEditorProps) {
 
   const [previewMode, setPreviewMode] = useState<'split' | 'code' | 'preview'>('split');
   const [editorHeight, setEditorHeight] = useState(500);
-  const [isLoading, setIsLoading] = useState(true);
   const [showFileTree, setShowFileTree] = useState(isMultiFile);
-  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const [editorTheme, setEditorTheme] = useState<'light' | 'dark'>('light');
+
+  // Detect system theme preference
+  useEffect(() => {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setEditorTheme(isDark ? 'dark' : 'light');
+
+    const listener = (e: MediaQueryListEvent) => {
+      setEditorTheme(e.matches ? 'dark' : 'light');
+    };
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, []);
 
   // Derive current file state
   const currentFile = useMemo(() => {
@@ -67,20 +80,14 @@ export function SplitEditor(props: SplitEditorProps) {
   }, [isMultiFile, currentFile, props.language]);
 
   // Handle content change
-  const handleChange = (newValue: string | undefined) => {
+  const handleChange = useCallback((newValue: string) => {
     const value = newValue || '';
     if (isMultiFile && currentFile) {
       props.onFileChange(currentFile.id, value);
     } else if (!isMultiFile) {
       props.onChange(value);
     }
-  };
-
-  const handleEditorDidMount: OnMount = (editor, monaco) => {
-    editorRef.current = editor;
-    setIsLoading(false);
-    monaco.editor.setTheme('vs');
-  };
+  }, [isMultiFile, currentFile, props]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(currentValue);
@@ -89,8 +96,11 @@ export function SplitEditor(props: SplitEditorProps) {
 
   const handleDownload = () => {
     if (isMultiFile && props.files.length > 1) {
-      // For multi-file, trigger ZIP export
-      handleDownloadZip();
+      // For multi-file, trigger ZIP export directly
+      const fileName = currentFile?.path.split('/')[0] || 'artifact';
+      createZip(props.files, `${fileName}.zip`)
+        .then(() => toast.success(`Downloading ${props.files.length} files...`))
+        .catch((err) => toast.error('Download failed', { description: err.message }));
       return;
     }
 
@@ -106,11 +116,6 @@ export function SplitEditor(props: SplitEditorProps) {
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Downloaded ${fileName}`);
-  };
-
-  const handleDownloadZip = () => {
-    // Trigger ZIP download event that parent can handle
-    window.dispatchEvent(new CustomEvent('downloadZip'));
   };
 
   return (
@@ -217,51 +222,20 @@ export function SplitEditor(props: SplitEditorProps) {
               height: `${editorHeight}px`,
             }}
           >
-            {/* Code editor */}
+            {/* Code editor - using CodeMirror */}
             {previewMode !== 'preview' && (
               <div
-                className="border-r border-border overflow-hidden relative"
+                className="border-r border-border overflow-hidden"
                 style={{ height: `${editorHeight}px` }}
               >
-                {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-card z-10">
-                    <div className="flex flex-col items-center gap-2">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Loading editor...</span>
-                    </div>
-                  </div>
-                )}
-
-                <Editor
-                  height={`${editorHeight}px`}
-                  language={currentLanguage}
+                <CodeEditor
                   value={currentValue}
                   onChange={handleChange}
-                  onMount={handleEditorDidMount}
-                  loading={
-                    <div className="flex items-center justify-center h-full">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  }
-                  options={{
-                    readOnly: props.readOnly,
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    padding: { top: 16, bottom: 16 },
-                    scrollBeyondLastLine: false,
-                    wordWrap: 'on',
-                    lineNumbers: 'on',
-                    renderLineHighlight: 'all',
-                    cursorStyle: 'line',
-                    folding: true,
-                    bracketPairColorization: { enabled: true },
-                    smoothScrolling: true,
-                    fontFamily: "'IBM Plex Sans', monospace",
-                    automaticLayout: true,
-                  }}
-                  theme="vs"
-                  className="text-sm"
+                  language={currentLanguage}
+                  readOnly={props.readOnly}
+                  height={`${editorHeight}px`}
+                  theme={editorTheme}
+                  className="h-full"
                 />
               </div>
             )}
@@ -314,15 +288,23 @@ export function SplitEditor(props: SplitEditorProps) {
               </div>
             )}
 
-            {/* Non-markdown files show code only */}
+            {/* Non-markdown files show code preview */}
             {previewMode !== 'code' && currentLanguage !== 'markdown' && (
               <div
-                className="flex items-center justify-center bg-muted/30"
+                className="overflow-auto bg-background"
                 style={{ height: `${editorHeight}px` }}
               >
-                <p className="text-sm text-muted-foreground">
-                  Preview not available for {currentLanguage} files
-                </p>
+                <div className="p-4">
+                  {currentValue ? (
+                    <pre className="text-sm font-mono whitespace-pre-wrap break-words">
+                      <code>{currentValue}</code>
+                    </pre>
+                  ) : (
+                    <div className="text-muted-foreground text-center py-12">
+                      {isMultiFile ? 'Select a file to view...' : 'Generated artifact will appear here...'}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
