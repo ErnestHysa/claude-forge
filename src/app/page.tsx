@@ -13,6 +13,7 @@ import { HistoryPanel } from '@/components/HistoryPanel';
 import { NetworkBanner } from '@/components/NetworkStatus';
 import { PasswordPrompt } from '@/components/PasswordPrompt';
 import { getSettings, type AppSettings } from '@/lib/settings';
+import { getCurrentUser } from '@/lib/user-account';
 import { getTemplate, templates } from '@/lib/templates';
 import { saveToHistory, extractNameFromContent, type HistoryItem } from '@/lib/history';
 import { getUserMessage, logError, createError, ErrorCodes } from '@/lib/error-handling';
@@ -31,7 +32,6 @@ export default function HomePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [unlockedPassword, setUnlockedPassword] = useState<string | undefined>();
   const [detectedPath, setDetectedPath] = useState('~/.claude/skills/');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -55,28 +55,42 @@ export default function HomePage() {
 
   // Load settings and theme on mount
   useEffect(() => {
-    const loadedSettings = getSettings(unlockedPassword);
-    setSettings(loadedSettings);
+    const loadSettings = async () => {
+      const loadedSettings = await getSettings();
+      setSettings(loadedSettings);
+
+      // Apply theme
+      const applyTheme = () => {
+        const theme = loadedSettings.appearance.theme;
+        const isDark =
+          theme === 'dark' ||
+          (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        setDarkMode(isDark);
+        document.documentElement.classList.toggle('dark', isDark);
+      };
+      applyTheme();
+    };
+
+    loadSettings();
 
     // Detect git repo for save path
     detectSaveLocation();
 
-    // Apply theme
-    const applyTheme = () => {
-      const theme = loadedSettings.appearance.theme;
-      const isDark =
-        theme === 'dark' ||
-        (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      setDarkMode(isDark);
-      document.documentElement.classList.toggle('dark', isDark);
-    };
-    applyTheme();
-
     // Listen for system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    mediaQuery.addEventListener('change', applyTheme);
-    return () => mediaQuery.removeEventListener('change', applyTheme);
-  }, [unlockedPassword]);
+    const handleThemeChange = () => {
+      if (settings) {
+        const theme = settings.appearance.theme;
+        const isDark =
+          theme === 'dark' ||
+          (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        setDarkMode(isDark);
+        document.documentElement.classList.toggle('dark', isDark);
+      }
+    };
+    mediaQuery.addEventListener('change', handleThemeChange);
+    return () => mediaQuery.removeEventListener('change', handleThemeChange);
+  }, []);
 
   // Detect save location (git repo or personal)
   const detectSaveLocation = async () => {
@@ -183,18 +197,10 @@ export default function HomePage() {
     }
 
     if (!settings.provider.apiKey) {
-      // Check if encryption is enabled - user needs to unlock
-      const { isEncryptionEnabled } = await import('@/lib/settings');
-      if (isEncryptionEnabled()) {
-        toast.error('Vault locked', {
-          description: 'Please unlock with your password to access your API key.',
-        });
-      } else {
-        toast.error('API key is required', {
-          description: 'Please configure your API key in Settings.',
-        });
-        router.push('/settings');
-      }
+      toast.error('API key is required', {
+        description: 'Please configure your API key in Settings.',
+      });
+      router.push('/settings');
       return;
     }
 
@@ -325,6 +331,12 @@ export default function HomePage() {
           content: generated,
           type: mode === 'auto' ? 'skill' : mode,
           location: 'auto',
+          isMultiFile,
+          files: isMultiFile ? editorFiles.map(f => ({
+            path: f.path,
+            content: f.content,
+            language: f.language,
+          })) : undefined,
         }),
       });
 
@@ -338,7 +350,9 @@ export default function HomePage() {
 
       const result = await response.json();
       toast.success(`Saved to ${result.path}`, {
-        description: 'Artifact saved successfully.',
+        description: isMultiFile
+          ? `${result.filesCount || editorFiles.length} files saved successfully.`
+          : 'Artifact saved successfully.',
       });
     } catch (error) {
       logError(error, 'Save');
@@ -511,8 +525,8 @@ export default function HomePage() {
         onLoad={handleLoadFromHistory}
       />
 
-      {/* Password Prompt - shows when encryption is enabled */}
-      <PasswordPrompt onSuccess={setUnlockedPassword} />
+      {/* Auth Prompt - shows when user is not logged in */}
+      <PasswordPrompt onSuccess={() => {/* Handled internally - redirects to auth */}} />
     </div>
   );
 }
