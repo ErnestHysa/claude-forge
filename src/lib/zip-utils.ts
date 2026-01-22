@@ -3,17 +3,14 @@
  * All client-side - no data leaves the device.
  */
 
+import JSZip from 'jszip';
 import type { EditorFile, Artifact } from '@/types';
 
 /**
  * Generate a ZIP file from multiple files
- * Uses a simple ZIP implementation without external dependencies
+ * Uses JSZip for proper ZIP creation
  */
 export async function createZip(files: EditorFile[], zipName: string = 'artifact.zip'): Promise<void> {
-  // For now, use a simpler approach - download each file
-  // In production, you'd use a library like JSZip
-  // This is a client-side only implementation
-
   if (files.length === 0) {
     throw new Error('No files to zip');
   }
@@ -25,26 +22,24 @@ export async function createZip(files: EditorFile[], zipName: string = 'artifact
     return;
   }
 
-  // For multiple files, we'll create a simple ZIP-like structure
-  // Using JSZip would be ideal, but to avoid dependencies, we'll
-  // create individual downloads for now
+  // Create a new ZIP file
+  const zip = new JSZip();
 
-  // Create a simple manifest and download files individually
-  const manifest = {
-    name: zipName.replace('.zip', ''),
-    files: files.map((f) => ({ path: f.path, language: f.language })),
-    created: new Date().toISOString(),
-  };
-
-  // Download manifest first
-  downloadFile('manifest.json', JSON.stringify(manifest, null, 2));
-
-  // Then download each file with a small delay
+  // Add each file to the ZIP
   for (const file of files) {
-    const fileName = file.path.replace(/\//g, '_');
-    downloadFile(fileName, file.content);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    zip.file(file.path, file.content);
   }
+
+  // Generate the ZIP file
+  const blob = await zip.generateAsync({ type: 'blob' });
+
+  // Trigger download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = zipName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /**
