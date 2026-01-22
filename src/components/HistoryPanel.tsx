@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Clock,
   Trash2,
@@ -149,17 +149,20 @@ export function HistoryPanel({ isOpen, onClose, onLoad }: HistoryPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  // Load history when panel opens
-  const refreshHistory = useCallback(() => {
-    setHistory(getHistory());
-  }, []);
-
+  // Load history when panel opens (defer setState with queueMicrotask)
   useEffect(() => {
-    if (isOpen) {
-      refreshHistory();
+    if (isOpen && !hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      // Defer setState to avoid calling it synchronously in effect body
+      queueMicrotask(() => {
+        setHistory(getHistory());
+      });
+    } else if (!isOpen) {
+      hasLoadedRef.current = false;
     }
-  }, [isOpen, refreshHistory]);
+  }, [isOpen]);
 
   // Filter history based on search (use useMemo to avoid setState in effect)
   const filteredHistory = useMemo(() => {
@@ -187,7 +190,7 @@ export function HistoryPanel({ isOpen, onClose, onLoad }: HistoryPanelProps) {
   const confirmDelete = () => {
     if (itemToDelete) {
       deleteFromHistory(itemToDelete);
-      refreshHistory();
+      setHistory(getHistory()); // Refresh after delete
       setItemToDelete(null);
       toast.success('Item deleted');
     }
@@ -196,7 +199,7 @@ export function HistoryPanel({ isOpen, onClose, onLoad }: HistoryPanelProps) {
 
   const handleClearAll = () => {
     clearHistory();
-    refreshHistory();
+    setHistory(getHistory()); // Refresh after clear
     setShowClearDialog(false);
     toast.success('History cleared');
   };

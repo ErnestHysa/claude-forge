@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,10 +14,11 @@ import {
 import { getCurrentUser } from '@/lib/user-account';
 
 interface PasswordPromptProps {
-  onSuccess?: () => void;
+  /** Callback invoked when user successfully signs in */
+  onSignIn?: () => void;
 }
 
-export function PasswordPrompt({ onSuccess }: PasswordPromptProps) {
+export function PasswordPrompt({ onSignIn }: PasswordPromptProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(() => {
     // Initialize state based on auth status during render
@@ -27,6 +28,7 @@ export function PasswordPrompt({ onSuccess }: PasswordPromptProps) {
 
   const handleGoToLogin = () => {
     setIsOpen(false);
+    onSignIn?.();
     router.push('/auth?redirect=' + encodeURIComponent(window.location.pathname));
   };
 
