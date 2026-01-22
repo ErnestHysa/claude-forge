@@ -10,6 +10,16 @@ interface SaveRequest {
   type: 'skill' | 'agent' | 'ruleset';
   location: 'auto' | 'custom';
   customPath?: string;
+  isMultiFile?: boolean;
+  files?: Array<{ path: string; content: string; language: string }>;
+}
+
+interface SaveResult {
+  success: boolean;
+  path: string;
+  artifactName: string;
+  location: 'project' | 'personal' | 'custom';
+  filesCount?: number;
 }
 
 // Extract name from YAML frontmatter or content
@@ -60,16 +70,13 @@ async function getSavePath(
   customPath: string | undefined,
   content: string,
   type: string
-): Promise<{ basePath: string; artifactName: string; fullPath: string }> {
+): Promise<{ basePath: string; artifactName: string }> {
   const artifactName = extractName(content, type);
-  const fileName = type === 'skill' ? 'SKILL.md' : `${type}.md`;
 
   if (location === 'custom' && customPath) {
-    const fullPath = path.join(customPath, fileName);
     return {
       basePath: customPath,
       artifactName,
-      fullPath,
     };
   }
 
@@ -79,35 +86,31 @@ async function getSavePath(
   if (inGitRepo) {
     // Project-local: .claude/skills/
     const projectPath = path.join(process.cwd(), '.claude', 'skills', artifactName);
-    const fullPath = path.join(projectPath, fileName);
     return {
       basePath: projectPath,
       artifactName,
-      fullPath,
     };
   }
 
   // Personal: ~/.claude/skills/
   const homeDir = os.homedir();
   const personalPath = path.join(homeDir, '.claude', 'skills', artifactName);
-  const fullPath = path.join(personalPath, fileName);
   return {
     basePath: personalPath,
     artifactName,
-    fullPath,
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { content, type, location, customPath }: SaveRequest = await request.json();
+    const { content, type, location, customPath, isMultiFile, files }: SaveRequest = await request.json();
 
     if (!content) {
       return NextResponse.json({ error: 'Content is required' }, { status: 400 });
     }
 
     // Determine save path
-    const { basePath, artifactName, fullPath } = await getSavePath(
+    const { basePath, artifactName } = await getSavePath(
       location,
       customPath,
       content,
@@ -117,10 +120,44 @@ export async function POST(request: NextRequest) {
     // Create directory if it doesn't exist
     await fs.mkdir(basePath, { recursive: true });
 
+    // Handle multi-file artifacts
+    if (isMultiFile && files && files.length > 0) {
+      // Save each file
+      const savedFiles: string[] = [];
+      for (const file of files) {
+        const filePath = path.join(basePath, file.path);
+        const dirPath = path.dirname(filePath);
+
+        // Create subdirectories if needed
+        await fs.mkdir(dirPath, { recursive: true });
+
+        // Write the file
+        await fs.writeFile(filePath, file.content, 'utf-8');
+        savedFiles.push(filePath);
+      }
+
+      // Also save the main SKILL.md as the entry point
+      const mainFileName = type === 'skill' ? 'SKILL.md' : `${type}.md`;
+      const mainFilePath = path.join(basePath, mainFileName);
+      await fs.writeFile(mainFilePath, content, 'utf-8');
+
+      return NextResponse.json<SaveResult>({
+        success: true,
+        path: basePath,
+        artifactName,
+        location: location === 'auto' ? (basePath.includes('.claude') ? 'project' : 'personal') : 'custom',
+        filesCount: savedFiles.length + 1, // +1 for the main SKILL.md
+      });
+    }
+
+    // Single file artifact
+    const fileName = type === 'skill' ? 'SKILL.md' : `${type}.md`;
+    const fullPath = path.join(basePath, fileName);
+
     // Write the file
     await fs.writeFile(fullPath, content, 'utf-8');
 
-    return NextResponse.json({
+    return NextResponse.json<SaveResult>({
       success: true,
       path: fullPath,
       artifactName,
