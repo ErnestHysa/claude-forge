@@ -61,7 +61,7 @@ export function CodeEditor({
         return markdown({ codeLanguages: languages });
       default:
         // For other languages, try to find a match
-        const langData = languages.find((l: { name?: string; ext?: string[]; alias?: string[] }) =>
+        const langData = languages.find((l: { name?: string; ext?: readonly string[]; alias?: readonly string[] }) =>
           l.name === lang ||
           l.ext?.includes(`.${lang}`) ||
           l.alias?.includes(lang)

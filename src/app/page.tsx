@@ -105,32 +105,6 @@ export default function HomePage() {
     }
   };
 
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + S - save
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        if (generated) {
-          handleSave();
-        }
-      }
-      // Cmd/Ctrl + , - settings
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
-        e.preventDefault();
-        router.push('/settings');
-      }
-      // Cmd/Ctrl + H - history
-      if ((e.metaKey || e.ctrlKey) && e.key === 'h') {
-        e.preventDefault();
-        setIsHistoryOpen((prev) => !prev);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [generated, router, handleSave]);
-
   // Toggle dark mode
   const toggleDarkMode = useCallback(() => {
     setDarkMode((prev) => {
@@ -363,6 +337,32 @@ export default function HomePage() {
     }
   }, [generated, isMultiFile, editorFiles, mode]);
 
+  // Handle keyboard shortcuts (must be after handleSave declaration)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + S - save
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        if (generated) {
+          handleSave();
+        }
+      }
+      // Cmd/Ctrl + , - settings
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        router.push('/settings');
+      }
+      // Cmd/Ctrl + H - history
+      if ((e.metaKey || e.ctrlKey) && e.key === 'h') {
+        e.preventDefault();
+        setIsHistoryOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [generated, router, handleSave]);
+
   // Handle mode change - reset template if incompatible
   const handleModeChange = (newMode: ArtifactMode) => {
     setMode(newMode);
@@ -526,7 +526,7 @@ export default function HomePage() {
       />
 
       {/* Auth Prompt - shows when user is not logged in */}
-      <PasswordPrompt onSuccess={() => {/* Handled internally - redirects to auth */}} />
+      <PasswordPrompt />
     </div>
   );
 }
