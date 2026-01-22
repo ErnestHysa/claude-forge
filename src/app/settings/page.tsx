@@ -2,7 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Settings, ShieldCheck, Palette, Keyboard, ArrowLeft, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import {
+  Settings,
+  ShieldCheck,
+  Palette,
+  Keyboard,
+  ArrowLeft,
+  User,
+  LogOut,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import {
   defaultSettings,
@@ -22,20 +29,15 @@ import {
   applyProviderPreset,
   providerPresets,
   type ProviderPreset,
-  isEncryptionEnabled,
-  setupPassword,
-  verifyPassword,
-  changePassword,
-  removePassword,
-  getPasswordState,
-  getPasswordHint,
 } from '@/lib/settings';
 import {
-  estimatePasswordStrength,
-  getPasswordStrengthColor,
-  validatePassword,
-  type PasswordValidation,
-} from '@/lib/encryption';
+  getCurrentUser,
+  isLoggedIn,
+  logout,
+  changePassword,
+  verifyPasswordStrength,
+  deleteAccount,
+} from '@/lib/user-account';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -43,31 +45,25 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  // Password / Security state
-  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  // User account state
+  const [currentUser, setCurrentUser] = useState<ReturnType<typeof getCurrentUser>>(null);
+
+  // Password change state
   const [showPasswordChange, setShowPasswordChange] = useState(false);
-  const [showSavePasswordPrompt, setShowSavePasswordPrompt] = useState(false);
-  const [savePassword, setSavePassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordHint, setPasswordHint] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showOldPassword, setShowOldPassword] = useState(false);
-  const [oldPassword, setOldPassword] = useState('');
-  const [isSavingPassword, setIsSavingPassword] = useState(false);
-  const [passwordValidation, setPasswordValidation] = useState<PasswordValidation>({
-    isValid: true,
-    errors: [],
-  });
-  const [passwordState, setPasswordState] = useState(getPasswordState());
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
-    setSettings(getSettings());
-    setPasswordState(getPasswordState());
-    if (getPasswordHint()) {
-      setPasswordHint(getPasswordHint() || '');
-    }
+    loadSettings();
   }, []);
+
+  const loadSettings = async () => {
+    const loadedSettings = await getSettings();
+    setSettings(loadedSettings);
+    setCurrentUser(getCurrentUser());
+  };
 
   const handlePresetChange = (preset: ProviderPreset) => {
     const presetConfig = applyProviderPreset(preset);
@@ -111,33 +107,10 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
-    // If encryption is enabled and API key is present, need password to save
-    if (isEncryptionEnabled() && settings.provider.apiKey) {
-      setShowSavePasswordPrompt(true);
-      return;
-    }
-
-    // No encryption or no API key - save directly
-    saveSettings(settings);
+    await saveSettings(settings);
     toast.success('Settings saved', {
       description: 'Your preferences have been updated.',
     });
-  };
-
-  const handleSaveWithPassword = async () => {
-    // Verify the password first
-    const isValid = await verifyPassword(savePassword);
-    if (!isValid) {
-      toast.error('Incorrect password');
-      return;
-    }
-
-    saveSettings(settings, savePassword);
-    toast.success('Settings saved', {
-      description: 'Your API key is encrypted and your preferences have been updated.',
-    });
-    setShowSavePasswordPrompt(false);
-    setSavePassword('');
   };
 
   const handleReset = () => {
@@ -147,56 +120,8 @@ export default function SettingsPage() {
     });
   };
 
-  // Password strength indicator update
-  useEffect(() => {
-    if (newPassword) {
-      setPasswordValidation(validatePassword(newPassword));
-    }
-  }, [newPassword]);
-
-  // Handle password setup
-  const handleSetupPassword = async () => {
-    if (!newPassword) {
-      toast.error('Password is required');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
-    const validation = validatePassword(newPassword);
-    if (!validation.isValid) {
-      toast.error('Password does not meet requirements', {
-        description: validation.errors.join('. '),
-      });
-      return;
-    }
-
-    setIsSavingPassword(true);
-    const result = await setupPassword(newPassword, passwordHint || undefined);
-
-    if (result.success) {
-      toast.success('Password set successfully', {
-        description: 'Your API key is now encrypted.',
-      });
-      setShowPasswordSetup(false);
-      setNewPassword('');
-      setConfirmPassword('');
-      setPasswordHint('');
-      setPasswordState(getPasswordState());
-    } else {
-      toast.error('Failed to set password', {
-        description: result.error,
-      });
-    }
-    setIsSavingPassword(false);
-  };
-
-  // Handle password change
-  const handleChangePassword = async () => {
-    if (!oldPassword || !newPassword) {
+  const handlePasswordChange = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error('All password fields are required');
       return;
     }
@@ -206,48 +131,70 @@ export default function SettingsPage() {
       return;
     }
 
-    const validation = validatePassword(newPassword);
-    if (!validation.isValid) {
-      toast.error('New password does not meet requirements', {
-        description: validation.errors.join('. '),
+    const strengthCheck = verifyPasswordStrength(newPassword);
+    if (!strengthCheck.valid) {
+      toast.error('New password too weak', {
+        description: strengthCheck.errors[0],
       });
       return;
     }
 
-    setIsSavingPassword(true);
-    const result = await changePassword(
-      oldPassword,
-      newPassword,
-      passwordHint || undefined
-    );
+    setIsChangingPassword(true);
+    const result = await changePassword(currentPassword, newPassword);
 
     if (result.success) {
       toast.success('Password changed successfully');
       setShowPasswordChange(false);
-      setOldPassword('');
+      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setPasswordHint('');
     } else {
-      toast.error('Failed to change password', {
+      toast.error('Password change failed', {
         description: result.error,
       });
     }
-    setIsSavingPassword(false);
+    setIsChangingPassword(false);
   };
 
-  // Handle password removal
-  const handleRemovePassword = () => {
-    if (confirm('Are you sure? This will decrypt your API key and store it in plain text.')) {
-      removePassword();
-      toast.success('Password removed', {
-        description: 'Your API key is no longer encrypted.',
+  const handleLogout = () => {
+    logout();
+    toast.success('Logged out');
+    router.push('/');
+  };
+
+  const handleDeleteAccount = async () => {
+    const passwordToDelete = prompt('Enter your password to delete your account:');
+    if (!passwordToDelete) return;
+
+    const confirmed = confirm(
+      'Are you sure you want to delete your account? This action cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    const result = await deleteAccount(currentUser!.username, passwordToDelete);
+
+    if (result.success) {
+      toast.success('Account deleted');
+      router.push('/');
+    } else {
+      toast.error('Deletion failed', {
+        description: result.error,
       });
-      setPasswordState(getPasswordState());
     }
   };
 
-  const passwordStrength = estimatePasswordStrength(newPassword);
+  const passwordStrength = newPassword ? verifyPasswordStrength(newPassword) : null;
+
+  const getStrengthColor = (strength: string) => {
+    switch (strength) {
+      case 'strong':
+        return 'text-emerald-600 dark:text-emerald-400';
+      case 'medium':
+        return 'text-amber-600 dark:text-amber-400';
+      default:
+        return 'text-red-600 dark:text-red-400';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -275,6 +222,142 @@ export default function SettingsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
+        {/* User Account Section */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <User className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Account</h2>
+              <p className="text-sm text-muted-foreground">
+                Manage your local account
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border rounded-xl p-6 space-y-6">
+            {currentUser ? (
+              <>
+                {/* User Info */}
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                    <User className="w-6 h-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-medium">{currentUser.username}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Created {new Date(currentUser.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Account Actions */}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowPasswordChange(!showPasswordChange)}
+                  >
+                    Change Password
+                  </Button>
+                  <Button variant="outline" onClick={handleLogout}>
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Sign Out
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDeleteAccount}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    Delete Account
+                  </Button>
+                </div>
+
+                {/* Password Change Form */}
+                {showPasswordChange && (
+                  <div className="pt-4 border-t border-border space-y-4">
+                    <h3 className="text-sm font-medium">Change Password</h3>
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="current-password">Current Password</Label>
+                        <Input
+                          id="current-password"
+                          type="password"
+                          placeholder="Enter current password"
+                          value={currentPassword}
+                          onChange={(e) => setCurrentPassword(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-password">New Password</Label>
+                        <Input
+                          id="new-password"
+                          type="password"
+                          placeholder="Enter new password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                        />
+                        {passwordStrength && newPassword && (
+                          <p className={`text-xs ${getStrengthColor(passwordStrength.strength)}`}>
+                            Password strength: {passwordStrength.strength}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="confirm-new-password">Confirm New Password</Label>
+                        <Input
+                          id="confirm-new-password"
+                          type="password"
+                          placeholder="Confirm new password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={handlePasswordChange}
+                          disabled={
+                            isChangingPassword ||
+                            !currentPassword ||
+                            !newPassword ||
+                            !confirmPassword ||
+                            !passwordStrength?.valid ||
+                            newPassword !== confirmPassword
+                          }
+                        >
+                          {isChangingPassword ? 'Changing...' : 'Change Password'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setShowPasswordChange(false);
+                            setCurrentPassword('');
+                            setNewPassword('');
+                            setConfirmPassword('');
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <User className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="font-medium mb-2">Not Signed In</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Sign in to access Claude Forge. Your account and data stay on your device.
+                </p>
+                <Button onClick={() => router.push('/auth?redirect=/settings')}>
+                  Go to Sign In
+                </Button>
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* AI Provider Section */}
         <section className="space-y-6">
           <div className="flex items-center gap-3">
@@ -345,8 +428,7 @@ export default function SettingsPage() {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Your API key is stored locally and never sent anywhere except the configured
-                endpoint.
+                Your API key is stored locally on your device.
               </p>
             </div>
 
@@ -389,256 +471,6 @@ export default function SettingsPage() {
                 </span>
               )}
             </div>
-          </div>
-        </section>
-
-        {/* Security Section */}
-        <section className="space-y-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Lock className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">Security</h2>
-              <p className="text-sm text-muted-foreground">
-                Encrypt your API key for secure local storage
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border rounded-xl p-6 space-y-6">
-            {/* Security Status */}
-            {!passwordState.isSet ? (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                  <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-amber-900 dark:text-amber-100">
-                      API Key Not Encrypted
-                    </p>
-                    <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
-                      Your API key is stored in plain text. Set a password to encrypt it locally
-                      using AES-256 encryption.
-                    </p>
-                  </div>
-                </div>
-
-                {!showPasswordSetup ? (
-                  <Button onClick={() => setShowPasswordSetup(true)}>
-                    <Lock className="h-4 w-4 mr-2" />
-                    Set Up Encryption
-                  </Button>
-                ) : (
-                  <div className="space-y-4 pt-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="newPassword">Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="newPassword"
-                          type={showPassword ? 'text' : 'password'}
-                          placeholder="Enter a strong password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      {newPassword && (
-                        <div className="flex items-center gap-2 text-xs">
-                          <span>Strength:</span>
-                          <span className={getPasswordStrengthColor(passwordStrength)}>
-                            {passwordStrength.charAt(0).toUpperCase() + passwordStrength.slice(1)}
-                          </span>
-                        </div>
-                      )}
-                      {passwordValidation.errors.length > 0 && (
-                        <ul className="text-xs text-destructive space-y-1">
-                          {passwordValidation.errors.map((error, i) => (
-                            <li key={i}>• {error}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="confirmPassword">Confirm Password</Label>
-                      <Input
-                        id="confirmPassword"
-                        type="password"
-                        placeholder="Confirm your password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="passwordHint">Password Hint (Optional)</Label>
-                      <Input
-                        id="passwordHint"
-                        placeholder="e.g., My favorite childhood pet"
-                        value={passwordHint}
-                        onChange={(e) => setPasswordHint(e.target.value)}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        A hint to help you remember your password if you forget it
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button onClick={handleSetupPassword} disabled={isSavingPassword}>
-                        {isSavingPassword ? 'Setting up...' : 'Set Password'}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setShowPasswordSetup(false);
-                          setNewPassword('');
-                          setConfirmPassword('');
-                          setPasswordHint('');
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
-                  <Lock className="h-5 w-5 text-green-600" />
-                  <div>
-                    <p className="font-medium text-green-900 dark:text-green-100">
-                      Encryption Enabled
-                    </p>
-                    <p className="text-sm text-green-800 dark:text-green-200">
-                      Your API key is encrypted and protected by your password
-                    </p>
-                  </div>
-                </div>
-
-                {passwordState.hasHint && (
-                  <div className="text-sm text-muted-foreground">
-                    <span className="font-medium">Hint:</span> {getPasswordHint()}
-                  </div>
-                )}
-
-                {!showPasswordChange ? (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowPasswordChange(true)}
-                    >
-                      Change Password
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleRemovePassword}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      Remove Encryption
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4 pt-2 border-t border-border">
-                    <div className="space-y-2">
-                      <Label htmlFor="oldPassword">Current Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="oldPassword"
-                          type={showOldPassword ? 'text' : 'password'}
-                          placeholder="Enter your current password"
-                          value={oldPassword}
-                          onChange={(e) => setOldPassword(e.target.value)}
-                          className="pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowOldPassword(!showOldPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showOldPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="newPasswordChange">New Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="newPasswordChange"
-                          type={showPassword ? 'text' : 'password'}
-                          placeholder="Enter a new strong password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      {newPassword && (
-                        <div className="flex items-center gap-2 text-xs">
-                          <span>Strength:</span>
-                          <span className={getPasswordStrengthColor(passwordStrength)}>
-                            {passwordStrength.charAt(0).toUpperCase() + passwordStrength.slice(1)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="confirmPasswordChange">Confirm New Password</Label>
-                      <Input
-                        id="confirmPasswordChange"
-                        type="password"
-                        placeholder="Confirm your new password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="passwordHintChange">New Password Hint (Optional)</Label>
-                      <Input
-                        id="passwordHintChange"
-                        placeholder="e.g., My favorite childhood pet"
-                        value={passwordHint}
-                        onChange={(e) => setPasswordHint(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button onClick={handleChangePassword} disabled={isSavingPassword}>
-                        {isSavingPassword ? 'Changing...' : 'Change Password'}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setShowPasswordChange(false);
-                          setOldPassword('');
-                          setNewPassword('');
-                          setConfirmPassword('');
-                          setPasswordHint('');
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </section>
 
